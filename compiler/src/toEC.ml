@@ -1243,7 +1243,6 @@ type ec_item =
     | Iabbrev of string * ec_expr
     | ImoduleType of ec_module_type 
     | Imodule of ec_module
-    | Inewline
 
 type ec_prog = ec_item list
 
@@ -1270,9 +1269,8 @@ let pp_ec_item fmt it = match it with
         (pp_list "@ " (fun fmt (v, t) -> Format.fprintf fmt "@[var %s : %s@]" v t)) m.vars
         (fun fmt _ -> if m.vars = [] then (Format.fprintf fmt "") else (Format.fprintf fmt "@ ")) ()
         (pp_list "@ " pp_ec_fun) m.funs
-    | Inewline -> Format.fprintf fmt "@ "
 
-let pp_ec_prog fmt prog = Format.fprintf fmt "@[<v>%a@]" (pp_list "@ " pp_ec_item) prog
+let pp_ec_prog fmt prog = Format.fprintf fmt "@[<v>%a@]" (pp_list "@ @ " pp_ec_item) prog
 
 let ec_glob_decl env (x,d) =
     let w_of_z ws z = Eapp (Eident [pp_Tsz ws; "of_int"], [ec_ident (ec_print_i z)]) in
@@ -1369,9 +1367,8 @@ let toec_prog pd asmOp model globs funcs arrsz warrsz randombytes =
     import_jleakage @
     (pp_arrays "Array" !(env.arrsz)) @
     (pp_arrays "WArray" !(env.warrsz)) @
-    List.flatten (List.map (fun glob -> [Inewline; ec_glob_decl env glob]) globs) @
+    (List.map (fun glob -> ec_glob_decl env glob) globs) @
     (ec_randombytes env) @
-    [Inewline] @
     [top_mod]
 
 let pp_prog pd asmOp fmt model globs funcs arrsz warrsz randombytes =
