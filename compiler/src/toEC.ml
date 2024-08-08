@@ -1418,7 +1418,24 @@ type ec_module = {
 
 type ec_prop =
   | Prop of ec_expr
-  | Hoare of ec_ident * ec_prop * ec_prop 
+  | Hoare of ec_ident * ec_prop * ec_prop
+
+type ec_tactic_ident =
+  | Ident of string
+  | Const_ident of string * ec_tactic_ident
+
+let pp_ec_tactic_ident fmt id =
+  
+  match id with
+  | Ident s -> Format.fprintf fmt "%s" s
+  | Const_ident of s c -> Format.fprintf fmt "(%s %a)" s pp_ec
+
+type ec_tactic =
+  | Simpl
+  | By of ec_tactic
+  | Conseq of ec_expr
+  | Mov_in of ec_tactic_ident list
+  | Mov_out of ec_tactic_ident list
 
 type ec_proof = string list
 
