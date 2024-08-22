@@ -1438,7 +1438,7 @@ let rec pp_ec_tactic_ident fmt id =
   | Const_ident (s, c) -> Format.fprintf fmt "(%s %a)" s (pp_list " " pp_ec_tactic_ident) c
 
 type ec_intro_pattern =
-  | Ident of string
+  | Todo
 
 type move_type = | In | Out
 
