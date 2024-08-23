@@ -500,7 +500,166 @@ type ec_op3 =
 
 type ec_ident = string list
 
-type ec_expr = 
+type quantif =
+  | Lforall
+  | Lexists
+  | Llambda
+
+type ec_form =
+  | Fquant  of quantif * ec_ident * ec_form
+  | Fif     of ec_form * ec_form * ec_form
+  | Fint    of Z.t
+  | Fbool   of bool
+  | Fident of ec_ident
+  | Fop     of ec_op2
+  | Fapp    of ec_form * ec_form list
+  | Ftuple  of ec_form list
+  | Fproj   of ec_form * int
+  (* | Hoare   of ec_ident * ec_form * ec_form * ec_fun *)
+
+let ec_ident s = Fident [s]
+
+let ec_vars env (x:var) = Mv.find x env.vars
+let ec_vari env (x:var) = Fident [ec_vars env x]
+
+let rec toec_form env (e: expr) =
+  match e with
+  | Pconst z -> Fint z
+  | Pbool b -> Fbool b
+  | Parr_init _n -> ec_ident "witness"
+  | Pvar x -> ec_vari env (L.unloc x.gv)
+  (*   | Pget (a, aa, ws, y, e) -> *)
+  (*       assert (check_array env y.gv); *)
+  (*       let x = L.unloc y.gv in *)
+  (*       let (xws, n) = array_kind x.v_ty in *)
+  (*       if ws = xws && aa = Warray_.AAscale then *)
+  (*           ec_aget (ec_vari env x) (toec_expr env e) *)
+  (*       else *)
+  (*           Eapp ( *)
+  (*               (ec_ident (Format.sprintf "get%i%s" (int_of_ws ws) (pp_access aa))), *)
+  (*               [ec_initi_var env (x, n, xws); toec_expr env e] *)
+  (*           ) *)
+  (*   | Psub (aa, ws, len, x, e) ->  *)
+  (*       assert (check_array env x.gv); *)
+  (*       let i = create_name env "i" in *)
+  (*       let x = L.unloc x.gv in *)
+  (*       let (xws,n) = array_kind x.v_ty in *)
+  (*       if ws = xws && aa = Warray_.AAscale then *)
+  (*           Eapp ( *)
+  (*               ec_Array_init env len, *)
+  (*               [ *)
+  (*                   Efun1 (i, ec_aget (ec_vari env x)  (Eop2 (Plus, toec_expr env e, ec_ident i))) *)
+  (*           ]) *)
+  (*       else  *)
+  (*           Eapp ( *)
+  (*               ec_Array_init env len, *)
+  (*               [ *)
+  (*                   Efun1 (i,  *)
+  (*                   Eapp (ec_ident (Format.sprintf "get%i%s" (int_of_ws ws) (pp_access aa)), [ *)
+  (*                       ec_initi_var env (x, n, xws); Eop2 (Plus, toec_expr env e, ec_ident i) *)
+  (*               ]) *)
+  (*                   ) *)
+  (*           ]) *)
+  (*   | Pload (_, sz, x, e) -> *)
+  (*       let load = ec_ident (Format.sprintf "loadW%i" (int_of_ws sz)) in *)
+  (*       Eapp (load, [ *)
+  (*           glob_memi; *)
+  (*           Eapp (pd_uint env, [ec_wcast env (add_ptr env.pd (gkvar x) e)]) *)
+  (*       ]) *)
+  (*   | Papp1 (op1, e) ->  *)
+  (*         ec_op1 op1 (ec_wcast env (in_ty_op1 op1, e)) *)
+  (*   | Papp2 (op2, e1, e2) ->   *)
+  (*       let ty1,ty2 = in_ty_op2 op2 in *)
+  (*       let te1, te2 = swap_op2 op2 (ty1, e1) (ty2, e2) in *)
+  (*       let op = Infix (Format.asprintf "%a" pp_op2 op2) in *)
+  (*       Eop2 (op, (ec_wcast env te1), (ec_wcast env te2)) *)
+  (*   | PappN (op, es) -> *)
+  (*       begin match op with *)
+  (*       | Opack (ws, we) -> *)
+  (*           let i = int_of_pe we in *)
+  (*           let rec aux es =  *)
+  (*               match es with *)
+  (*               | [] -> assert false *)
+  (*               | [e] -> toec_expr env e *)
+  (*               | e::es ->  *)
+  (*                       let exp2i = Eop2 (Infix "^", iIdent 2, iIdent i) in *)
+  (*                       Eop2 ( *)
+  (*                           Infix "+", *)
+  (*                           Eop2 (Infix "%%", toec_expr env e, exp2i), *)
+  (*                           Eop2 (Infix "*", exp2i, aux es) *)
+  (*                           ) *)
+  (*           in *)
+  (*           ec_apps1 (Format.sprintf "W%i.of_int" (int_of_ws ws)) (aux (List.rev es)) *)
+  (*       | Ocombine_flags c ->  *)
+  (*           Eapp ( *)
+  (*               ec_ident (Printer.string_of_combine_flags c), *)
+  (*               List.map (toec_expr env) es *)
+  (*           ) *)
+  (*       end *)
+
+  (*   | Pabstract (opa, es) -> *)
+  (*     Eapp (ec_ident opa.name, List.map (toec_expr env) es) *)
+
+  (*   | Pif(_,e1,et,ef) ->  *)
+  (*       let ty = ty_expr e in *)
+  (*       Eop3 ( *)
+  (*           Ternary, *)
+  (*           toec_expr env e1, *)
+  (*           ec_wcast env (ty, et), *)
+  (*           ec_wcast env (ty, ef) *)
+  (*         ) *)
+
+  (* | Pfvar x -> ec_vari env (L.unloc x) *)
+
+  (* | Pbig (a, b, op, v, i, e) -> *)
+  (*   let v = L.unloc v in *)
+  (*   let env = add_var env v in *)
+  (*   let op = Infix (Format.asprintf "%a" pp_op2 op) in *)
+  (*   let acc = "acc" and x = "x" in *)
+  (*   let expr = Eop2 (op, Eident [x], Eident [acc]) in *)
+  (*   let lambda1 = Efun1 (acc, expr) in *)
+  (*   let lambda1 = Efun1 (x, lambda1) in *)
+  (*   let i = toec_expr env i in *)
+  (*   let a = toec_expr env a in *)
+  (*   let b = toec_expr env b in *)
+  (*   let e = toec_expr env e in *)
+  (*   let lambda2 = Efun1(ec_vars env v,e) in *)
+  (*   let iota = Eapp (ec_ident "iota_", [a; b]) in *)
+  (*   let map = Eapp (ec_ident "map", [lambda2;iota]) in *)
+  (*   Eapp (ec_ident "foldr", [lambda1;i; map]) *)
+
+  (* | Presult (i, x) -> *)
+  (*   let ret = env.freturn in *)
+  (*   if List.length ret = 1 then *)
+  (*     ec_ident "res" *)
+  (*   else *)
+  (*     let i = Format.asprintf "%i" (i+1) in *)
+  (*     Eident ["res";i] *)
+
+  (* | Presultget (_, aa, ws, i, x, e) -> *)
+  (*   assert (check_array env x.gv); *)
+  (*   let x = L.unloc x.gv in *)
+  (*   let ret = env.freturn in *)
+  (*   let (xws,n) = array_kind x.v_ty in *)
+  (*   if ws = xws && aa = Warray_.AAscale then *)
+  (*     begin *)
+  (*       let e = toec_expr env e in *)
+  (*       if List.length ret = 1 then *)
+  (*         ec_aget (ec_ident "res") e *)
+  (*       else *)
+  (*         let i = Format.asprintf "%i" (i+1) in *)
+  (*         ec_aget (Eident ["res";i]) e *)
+  (*     end *)
+  (*   else *)
+  (*     assert false *)
+      | _ -> assert false
+
+
+let rec pp_ec_ast_form fmt e =
+  match e with
+  | _ -> assert false
+
+type ec_expr =
     | Econst of Z.t (* int. literal *)
     | Ebool of bool (* bool literal *)
     | Eident of ec_ident (* variable *)
@@ -511,12 +670,25 @@ type ec_expr =
     | Elist of ec_expr list (* list litteral *)
     | Etuple of ec_expr list (* tuple litteral *)
 
-let ec_ident s = Eident [s]
+let rec form_to_expr (e: ec_form) =
+  match e with
+  | Fint z  -> Econst z
+  | Fbool b -> Ebool b
+  (* | Fop op -> Eop2 op *)
+  | Fident id -> Eident id
+  | Fapp (f , fl) ->
+    let e = form_to_expr f in
+    let ef = List.map form_to_expr fl in
+    Eapp (e, ef)
+  | Ftuple fl ->
+    let el = List.map form_to_expr fl in
+    Etuple el
+  | _ -> assert false
+
+let rec toec_expr env (e: expr) = form_to_expr (toec_form env e)
+
 let ec_aget a i = Eop2 (ArrayGet, a, i)
 let ec_int x = Econst (Z.of_int x)
-
-let ec_vars env (x:var) = Mv.find x env.vars
-let ec_vari env (x:var) = Eident [ec_vars env x]
 
 let glob_mem = ["Glob"; "mem"]
 let glob_memi = Eident glob_mem
@@ -582,138 +754,6 @@ let ec_op1 op e = match op with
   | E.Onot     -> ec_apps1 "!" e
   | E.Olnot _  -> ec_apps1 "invw" e
   | E.Oneg _   -> ec_apps1 "-" e
-
-
-let rec toec_expr env (e: expr) =
-    match e with
-    | Pconst z -> Econst z
-    | Pbool b -> Ebool b
-    | Parr_init _n -> ec_ident "witness"
-    | Pvar x -> ec_vari env (L.unloc x.gv)
-    | Pget (a, aa, ws, y, e) ->
-        assert (check_array env y.gv);
-        let x = L.unloc y.gv in
-        let (xws, n) = array_kind x.v_ty in
-        if ws = xws && aa = Warray_.AAscale then
-            ec_aget (ec_vari env x) (toec_expr env e)
-        else
-            Eapp (
-                (ec_ident (Format.sprintf "get%i%s" (int_of_ws ws) (pp_access aa))),
-                [ec_initi_var env (x, n, xws); toec_expr env e]
-            )
-    | Psub (aa, ws, len, x, e) -> 
-        assert (check_array env x.gv);
-        let i = create_name env "i" in
-        let x = L.unloc x.gv in
-        let (xws,n) = array_kind x.v_ty in
-        if ws = xws && aa = Warray_.AAscale then
-            Eapp (
-                ec_Array_init env len,
-                [
-                    Efun1 (i, ec_aget (ec_vari env x)  (Eop2 (Plus, toec_expr env e, ec_ident i)))
-            ])
-        else 
-            Eapp (
-                ec_Array_init env len,
-                [
-                    Efun1 (i, 
-                    Eapp (ec_ident (Format.sprintf "get%i%s" (int_of_ws ws) (pp_access aa)), [
-                        ec_initi_var env (x, n, xws); Eop2 (Plus, toec_expr env e, ec_ident i)
-                ])
-                    )
-            ])
-    | Pload (_, sz, x, e) ->
-        let load = ec_ident (Format.sprintf "loadW%i" (int_of_ws sz)) in
-        Eapp (load, [
-            glob_memi;
-            Eapp (pd_uint env, [ec_wcast env (add_ptr env.pd (gkvar x) e)])
-        ])
-    | Papp1 (op1, e) -> 
-          ec_op1 op1 (ec_wcast env (in_ty_op1 op1, e))
-    | Papp2 (op2, e1, e2) ->  
-        let ty1,ty2 = in_ty_op2 op2 in
-        let te1, te2 = swap_op2 op2 (ty1, e1) (ty2, e2) in
-        let op = Infix (Format.asprintf "%a" pp_op2 op2) in
-        Eop2 (op, (ec_wcast env te1), (ec_wcast env te2))
-    | PappN (op, es) ->
-        begin match op with
-        | Opack (ws, we) ->
-            let i = int_of_pe we in
-            let rec aux es = 
-                match es with
-                | [] -> assert false
-                | [e] -> toec_expr env e
-                | e::es -> 
-                        let exp2i = Eop2 (Infix "^", iIdent 2, iIdent i) in
-                        Eop2 (
-                            Infix "+",
-                            Eop2 (Infix "%%", toec_expr env e, exp2i),
-                            Eop2 (Infix "*", exp2i, aux es)
-                            )
-            in
-            ec_apps1 (Format.sprintf "W%i.of_int" (int_of_ws ws)) (aux (List.rev es))
-        | Ocombine_flags c -> 
-            Eapp (
-                ec_ident (Printer.string_of_combine_flags c),
-                List.map (toec_expr env) es
-            )
-        end
-
-    | Pabstract (opa, es) ->
-      Eapp (ec_ident opa.name, List.map (toec_expr env) es)
-
-    | Pif(_,e1,et,ef) -> 
-        let ty = ty_expr e in
-        Eop3 (
-            Ternary,
-            toec_expr env e1,
-            ec_wcast env (ty, et),
-            ec_wcast env (ty, ef)
-          )
-
-  | Pfvar x -> ec_vari env (L.unloc x)
-
-  | Pbig (a, b, op, v, i, e) ->
-    let v = L.unloc v in
-    let env = add_var env v in
-    let op = Infix (Format.asprintf "%a" pp_op2 op) in
-    let acc = "acc" and x = "x" in
-    let expr = Eop2 (op, Eident [x], Eident [acc]) in
-    let lambda1 = Efun1 (acc, expr) in
-    let lambda1 = Efun1 (x, lambda1) in
-    let i = toec_expr env i in
-    let a = toec_expr env a in
-    let b = toec_expr env b in
-    let e = toec_expr env e in
-    let lambda2 = Efun1(ec_vars env v,e) in
-    let iota = Eapp (ec_ident "iota_", [a; b]) in
-    let map = Eapp (ec_ident "map", [lambda2;iota]) in
-    Eapp (ec_ident "foldr", [lambda1;i; map])
-
-  | Presult (i, x) ->
-    let ret = env.freturn in
-    if List.length ret = 1 then
-      ec_ident "res"
-    else
-      let i = Format.asprintf "%i" (i+1) in
-      Eident ["res";i]
-
-  | Presultget (_, aa, ws, i, x, e) ->
-    assert (check_array env x.gv);
-    let x = L.unloc x.gv in
-    let ret = env.freturn in
-    let (xws,n) = array_kind x.v_ty in
-    if ws = xws && aa = Warray_.AAscale then
-      begin
-        let e = toec_expr env e in
-        if List.length ret = 1 then
-          ec_aget (ec_ident "res") e
-        else
-          let i = Format.asprintf "%i" (i+1) in
-          ec_aget (Eident ["res";i]) e
-      end
-    else
-      assert false
 
 and toec_cast env ty e = ec_cast env (ty, ty_expr e) (toec_expr env e)
 and ec_wcast env (ty, e) = toec_cast env ty e
@@ -1264,10 +1304,6 @@ and toec_instr asmOp env i =
             ESwhile (Eop2 (Infix "<", ec_i1, ec_i2), (toec_cmd asmOp env c) @ [i_upd])
             ]
 
-type ec_ty = string
-
-type ec_var = string * ec_ty
-
 type ec_fun_decl = {
     fname: string;
     args: (string * ec_ty) list;
@@ -1413,43 +1449,24 @@ type ec_module = {
     ty: ec_modty option;
     vars: (string * string) list;
     funs: ec_fun list;
-    
+   
 }
 
-type ec_prop =
-  | Prop of ec_expr
-  | Forall of ec_ident list * ec_prop
-  | Hoare of ec_ident * ec_prop * ec_prop
+type ec_proposition = string * ec_form
 
-let rec pp_ec_prop fmt prop =
-  match prop with
-  | Prop e -> pp_ec_ast_expr fmt e
-  | Forall (is, p) ->
-    Format.fprintf "forall %a, %a" (pp_list " " pp_ec_ident is) pp_ec_prop p
-  | Hoare (is, p) ->
+type ec_tactic_args =
+  | Tactic of ec_tactic
+  | Form of ec_form
+  | Ident of ec_ident
+  | Pattern of string
+  | Prop of ec_proposition
+  | Conti of ec_tactic
 
-type ec_tactic_ident =
-  | Ident of string
-  | Const_ident of string * ec_tactic_ident list
+and ec_tactic =
+  { tname : string;
+    targs : ec_tactic_args list; }
 
-let rec pp_ec_tactic_ident fmt id =
-  match id with
-  | Ident s -> Format.fprintf fmt "%s" s
-  | Const_ident (s, c) -> Format.fprintf fmt "(%s %a)" s (pp_list " " pp_ec_tactic_ident) c
-
-type ec_intro_pattern =
-  | Todo
-
-type move_type = | In | Out
-
-type ec_tactic =
-  | Simpl
-  | By of ec_tactic
-  | Conseq of ec_expr
-  | Apply of ec_tactic_ident
-  | Mov of move_type * ec_intro_pattern list
-
-type ec_proof = string list
+type ec_proof = ec_tactic list
 
 type ec_item =
     | IrequireImport of string list
@@ -1459,8 +1476,8 @@ type ec_item =
     | Iabbrev of string * ec_expr
     | ImoduleType of ec_module_type 
     | Imodule of ec_module
-    | Axiom of string * ec_ident * ec_prop
-    | Lemma of string * ec_ident * ec_prop * ec_proof
+    | Axiom of ec_proposition
+    | Lemma of ec_proposition * ec_proof
 
 type ec_prog = ec_item list
 
@@ -1488,8 +1505,8 @@ let pp_ec_item fmt it = match it with
         (fun fmt _ -> if m.vars = [] then (Format.fprintf fmt "") else (Format.fprintf fmt "@ ")) ()
         (pp_list "@ " pp_ec_fun) m.funs
 
-    | Axiom (name, _, _) -> Format.fprintf fmt "@[<v>@[axiom %s :true]]" name
-    | Lemma (name, _, _, _) -> Format.fprintf fmt "@[<v>@[lemma %s: true]]" name
+    | Axiom (n, _) -> Format.fprintf fmt "@[<v>@[axiom %s :true]]" n
+    | Lemma ((n, _), _) -> Format.fprintf fmt "@[<v>@[lemma %s: true]]" n
 
 let pp_ec_prog fmt prog = Format.fprintf fmt "@[<v>%a@]" (pp_list "@ @ " pp_ec_item) prog
 
