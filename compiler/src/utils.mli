@@ -136,6 +136,7 @@ val pp_string : string pp
 type model = 
   | ConstantTime
   | Normal
+  | Cl
 
 (* -------------------------------------------------------------------- *)
 (* Enables colors in errors and warnings.                               *)

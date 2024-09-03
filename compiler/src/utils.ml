@@ -234,6 +234,7 @@ let pp_string fmt s =
 type model =
   | ConstantTime
   | Normal
+  | Cl
 
 (* -------------------------------------------------------------------- *)
 (* Functions used to add colors to errors and warnings.                 *)
