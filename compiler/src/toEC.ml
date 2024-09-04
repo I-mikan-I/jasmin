@@ -519,12 +519,11 @@ module Ec = struct
   type ec_ident = string list
 
   type ec_expr =
-    | Equant  of quantif * ec_ident list * ec_expr (*The lambda term are already here*)
+    | Equant  of quantif * string list * ec_expr (*The lambda term are already here*)
     | Econst of Z.t (* int. literal *)
     | Ebool of bool (* bool literal *)
     | Eident of ec_ident (* variable *)
     | Eapp of ec_expr * ec_expr list (* op. application *)
-    | Efun1 of string * ec_expr (* fun s => expr *)
     | Eop2 of ec_op2 * ec_expr * ec_expr (* binary operator *)
     | Eop3 of ec_op3 * ec_expr * ec_expr * ec_expr (* ternary operator *)
     | Elist of ec_expr list (* list litteral *)
@@ -589,6 +588,7 @@ module Ec = struct
     | Ident of ec_ident
     | Pattern of string
     | Prop of string
+    | Comment of string
 
   and ec_tactic =
     { tname : string;
@@ -628,8 +628,6 @@ module Ec = struct
             Format.fprintf fmt "@[(@,%a@,)@]"
             (Format.(pp_print_list ~pp_sep:(fun fmt () -> fprintf fmt "@ ")) pp_ec_ast_expr)
             (f::ops)
-    | Efun1 (var, e) -> 
-            Format.fprintf fmt "@[(fun %s => %a)@]" var pp_ec_ast_expr e
     | Eop2 (op, e1, e2) -> pp_ec_op2 fmt (op, e1, e2)
     | Eop3 (op, e1, e2, e3) -> pp_ec_op3 fmt (op, e1, e2, e3)
     | Elist es -> Format.fprintf fmt "@[[%a]@]" (pp_list ";@ " pp_ec_ast_expr) es
@@ -639,10 +637,10 @@ module Ec = struct
         match q with
         | Llambda ->
           Format.fprintf fmt "@[%s %a =>@ %a@]"
-            (string_of_quant q) (pp_list " " pp_ec_ident) i pp_ec_ast_expr f
+            (string_of_quant q) (pp_list " " pp_string) i pp_ec_ast_expr f
         | _ ->
           Format.fprintf fmt "@[%s %a,@ %a@]"
-            (string_of_quant q) (pp_list " " pp_ec_ident) i pp_ec_ast_expr f
+            (string_of_quant q) (pp_list " " pp_string) i pp_ec_ast_expr f
       end
     | EHoare (i,fpre,fpost) ->
       Format.fprintf fmt "hoare[@[%a :@ @[%a ==>@ %a@]@]]"
@@ -742,6 +740,7 @@ module Ec = struct
     | Ident i -> Format.fprintf fmt "@[%a@]" pp_ec_ident i
     | Pattern s -> Format.fprintf fmt "@[%s@]" s
     | Prop s -> Format.fprintf fmt "@[%s@]" s
+    | Comment s -> Format.fprintf fmt "@[(* %s *)@]" s
 
   and pp_ec_tactic fmt t =
     Format.fprintf fmt "%s %a" t.tname (pp_list " " pp_ec_tatic_args) t.targs
@@ -818,7 +817,7 @@ module Exp = struct
 
   let ec_WArray_initf env ws n f =
     let i = create_name env "i" in
-    Eapp (ec_WArray_init env ws n, [Efun1 (i, f i)])
+    Eapp (ec_WArray_init env ws n, [Equant (Llambda ,[i], f i)])
 
   let ec_initi env (x, n, ws) =
     let f i = ec_aget x (ec_ident i) in
@@ -844,7 +843,9 @@ module Exp = struct
         let wse, ne = array_kind ety in
         let i = create_name env "i" in
         let geti = ec_ident (Format.sprintf "get%i" (int_of_ws ws)) in
-        let init_fun = Efun1 (i, Eapp (geti, [ec_initi env (e, ne, wse); ec_ident i])) in
+        let init_fun =
+          Equant (Llambda, [i], Eapp (geti, [ec_initi env (e, ne, wse); ec_ident i]))
+        in
         Eapp (ec_Array_init env n, [init_fun])
 
   let ec_op1 op e = match op with
@@ -891,13 +892,14 @@ module Exp = struct
         Eapp (
           ec_Array_init env len,
           [
-            Efun1 (i, ec_aget (ec_vari env x)  (Eop2 (Plus, toec_expr env e, ec_ident i)))
+            Equant (Llambda, [i],
+                    ec_aget (ec_vari env x)  (Eop2 (Plus, toec_expr env e, ec_ident i)))
           ])
       else
         Eapp (
           ec_Array_init env len,
           [
-            Efun1 (i,
+            Equant (Llambda, [i],
                    Eapp (ec_ident (Format.sprintf "get%i%s" (int_of_ws ws) (pp_access aa)), [
                        ec_initi_var env (x, n, xws); Eop2 (Plus, toec_expr env e, ec_ident i)
                      ])
@@ -960,13 +962,13 @@ module Exp = struct
       let op = Infix (Format.asprintf "%a" pp_op2 op) in
       let acc = "acc" and x = "x" in
       let expr = Eop2 (op, Eident [x], Eident [acc]) in
-      let lambda1 = Efun1 (acc, expr) in
-      let lambda1 = Efun1 (x, lambda1) in
+      let lambda1 = Equant (Llambda, [acc], expr) in
+      let lambda1 = Equant (Llambda, [x], lambda1) in
       let i = toec_expr env i in
       let a = toec_expr env a in
       let b = toec_expr env b in
       let e = toec_expr env e in
-      let lambda2 = Efun1(ec_vars env v,e) in
+      let lambda2 = Equant(Llambda, [ec_vars env v],e) in
       let iota = Eapp (ec_ident "iota_", [a; b]) in
       let map = Eapp (ec_ident "map", [lambda2;iota]) in
       Eapp (ec_ident "foldr", [lambda1;i; map])
@@ -1061,7 +1063,7 @@ let toec_lval1 env lv e =
       ESasgn (
         [LvIdent [ec_vars env x]],
         Eapp (ec_Array_init env n, [
-            Efun1 (i, Eop3 (
+            Equant (Llambda, [i], Eop3 (
                 If,
                 Eop3 (InORange, toec_expr env e1, ec_ident i, range_ub),
                 ec_aget e (Eop2 (Infix "-", ec_ident i, toec_expr env e1)),
@@ -1094,7 +1096,7 @@ let toec_lval1 env lv e =
       let ae =
         Eapp (aw_get8 nws8, [ec_initi_var env (x, n, xws); ec_ident i])
       in
-      let a = Eapp (ainit, [Efun1 (i, Eop3 (If, in_range, at, ae))]) in
+      let a = Eapp (ainit, [Equant (Llambda, [i], Eop3 (If, in_range, at, ae))]) in
       let wag = Eident [ec_WArray env nws8; Format.sprintf "get%i" (int_of_ws xws)] in
       ESasgn (
         [LvIdent [ec_vars env x]],
@@ -1227,11 +1229,9 @@ module CL  = struct
 
     let tactic = {
       tname = "admitted";
-      targs = [];
+      targs = [Comment "TODO"];
     }
     in
-
-    (* Add a todo comment at the admitted point *)
 
     Lemma ((name, [], EHoare ([fname], pre, post)),[tactic])
 
@@ -1253,7 +1253,7 @@ module CL  = struct
 
     let tactic = {
       tname = "admitted";
-      targs = [];
+      targs = [Comment "TODO"];
     }
     in
 
@@ -1277,7 +1277,7 @@ module CL  = struct
     let post = pp_contract env f.f_contra.f_post in
 
     let name = Format.asprintf "%s_spec" fname in
-    let bindings = List.map (fun x -> [x]) vars in
+    let bindings =  vars in
 
     let form = Equant (Lforall, bindings, EHoare ([fname], pre, post)) in
     let prop = (name, [], form) in
@@ -1510,7 +1510,7 @@ let toec_lval1 env lv e =
         ESasgn (
             [LvIdent [ec_vars env x]],
             Eapp (ec_Array_init env n, [
-                Efun1 (i, Eop3 (
+                Equant (Llambda, [i], Eop3 (
                     If,
                     Eop3 (InORange, toec_expr env e1, ec_ident i, range_ub),
                     ec_aget e (Eop2 (Infix "-", ec_ident i, toec_expr env e1)),
@@ -1534,7 +1534,7 @@ let toec_lval1 env lv e =
         let aw_get8 len = Eident [ec_WArray env len; "get8"] in
         let at = Eapp (aw_get8 len8, [ec_initi env (e, len, ws); Eop2 (Infix "-", ec_ident i, start)]) in
         let ae = Eapp (aw_get8 nws8, [ec_initi_var env (x, n, xws); ec_ident i]) in
-        let a = Eapp (ainit, [Efun1 (i, Eop3 (If, in_range, at, ae))]) in
+        let a = Eapp (ainit, [Equant (Llambda, [i], Eop3 (If, in_range, at, ae))]) in
         let wag = Eident [ec_WArray env nws8; Format.sprintf "get%i" (int_of_ws xws)] in
         ESasgn (
             [LvIdent [ec_vars env x]],
@@ -1744,11 +1744,11 @@ and toec_instr asmOp env i =
               (ec_pcall env lvs2 otys [get_funname env f] args)
       in
 
-      let i = List.fold_left (fun acc post -> CL.ec_assume env post @ acc ) i post in
+      let i = List.fold_left (fun acc post -> acc @ CL.ec_assume env post ) i post in
       List.fold_left2
         (fun acc lv e ->
            let e = toec_cast env (ty_lval lv) e in
-           (toec_lval1 env lv e) :: acc)
+           acc @ [toec_lval1 env lv e])
         i lvs elvs2
 
     | Cassert (Assume,_,e) -> CL.ec_assume env e
@@ -1919,8 +1919,8 @@ let ec_randombytes env =
     let randombytes_f n = 
         let dmap = 
             let wa = fmt_WArray n in
-            let initf = Efun1 ("a", Eapp (Eident [fmt_Array n; "init"], [
-                Efun1 ("i", Eapp (Eident [wa; "get8"], [ec_ident "a"; ec_ident "i"]))
+            let initf = Equant (Llambda, ["a"], Eapp (Eident [fmt_Array n; "init"], [
+                Equant (Llambda, ["i"], Eapp (Eident [wa; "get8"], [ec_ident "a"; ec_ident "i"]))
             ])) in
             Eapp (ec_ident "dmap", [Eident [wa; "darray"]; initf])
         in
