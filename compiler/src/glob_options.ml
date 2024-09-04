@@ -85,7 +85,6 @@ let set_slice f =
   slice := f :: !slice
 
 let set_constTime () = model := ConstantTime
-let set_Cl () = model := Cl
 
 let set_checksafety () = check_safety := true
 let set_safetyparam s = safety_param := Some s
@@ -186,7 +185,6 @@ let options = [
     "-oec"     ,  Arg.Set_string ecfile , "[filename] Use filename as output destination for easycrypt extraction";
     "-oecarray" , Arg.String set_ec_array_path, "[dir] Output easycrypt array theories to the given path";
     "-CT" , Arg.Unit set_constTime      , " Generate model for constant time verification";
-    "-CL" , Arg.Unit set_Cl      , " Generate model for Cryptoline verification";
     "-slice"    , Arg.String set_slice  , "[f] Keep function [f] and everything it needs";
     "-checksafety", Arg.Unit set_checksafety, " Automatically check for safety";
     "-safetyparam", Arg.String set_safetyparam,
