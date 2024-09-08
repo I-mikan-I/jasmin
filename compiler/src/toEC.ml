@@ -23,8 +23,14 @@ module Ec = struct
 
   type ec_ident = string list
 
+  type ec_ty =
+    | Base of string
+    | Tuple of ec_ty list
+
+  type ec_var = string * ec_ty
+
   type ec_expr =
-    | Equant  of quantif * string list * ec_expr (*The lambda term are already here*)
+    | Equant  of quantif * string list * ec_expr (*use ec_var list for binders*)
     | Econst of Z.t (* int. literal *)
     | Ebool of bool (* bool literal *)
     | Eident of ec_ident (* variable *)
@@ -36,15 +42,9 @@ module Ec = struct
     | Eproj  of ec_expr * int  (* projection of a tuple *)
     | EHoare of ec_ident * ec_expr * ec_expr
 
-  type ec_ty =
-    | Base of string
-    | Tuple of ec_ty list
-
-  type ec_var = string * ec_ty
-
   type ec_fun_decl = {
     fname: string;
-    args: (string * ec_ty) list;
+    args: ec_var list;
     rtys: ec_ty;
   }
 
@@ -67,7 +67,7 @@ module Ec = struct
 
   type ec_fun = {
     decl: ec_fun_decl;
-    locals: (string * ec_ty) list;
+    locals: ec_var list;
     stmt: ec_stmt;
   }
 
@@ -82,7 +82,7 @@ module Ec = struct
     name: string;
     params: (string * ec_modty) list;
     ty: ec_modty option;
-    vars: (string * ec_ty) list;
+    vars: ec_var list;
     funs: ec_fun list;
   }
 
@@ -122,8 +122,8 @@ module Ec = struct
 
   (* Printer*)
 
-  let ec_print_i z = 
-    if Z.leq Z.zero z then Z.to_string z 
+  let ec_print_i z =
+    if Z.leq Z.zero z then Z.to_string z
     else Format.asprintf "(%a)" Z.pp_print z
 
   let pp_option pp fmt = function
@@ -144,6 +144,13 @@ module Ec = struct
     | Lforall -> "forall"
     | Lexists -> "exists"
     | Llambda -> "fun"
+
+  let rec pp_ec_ty fmt ty =
+    match ty with
+    | Base t -> Format.fprintf fmt "%s" t
+    | Tuple tl ->
+      if tl = [] then Format.fprintf fmt "unit"
+      else Format.fprintf fmt "@[(%a)@]" (pp_list " *@ " pp_ec_ty) tl
 
   let rec pp_ec_ast_expr fmt e = match e with
     | Econst z -> Format.fprintf fmt "%s" (ec_print_i z)
@@ -175,20 +182,20 @@ module Ec = struct
         (pp_ec_ast_expr) fpost
 
   and pp_ec_op2 fmt (op2, e1, e2) =
-    let f fmt = match op2 with
+    let f = match op2 with
       | ArrayGet -> Format.fprintf fmt "@[%a.[%a]@]"
       | Plus -> Format.fprintf fmt "@[(%a +@ %a)@]"
       | Infix s -> (fun pp1 e1 -> Format.fprintf fmt "@[(%a %s@ %a)@]" pp1 e1 s)
     in
-    (f fmt) pp_ec_ast_expr e1 pp_ec_ast_expr e2
+    f pp_ec_ast_expr e1 pp_ec_ast_expr e2
 
   and pp_ec_op3 fmt (op, e1, e2, e3) =
-    let f fmt = match op with
+    let f = match op with
       | Ternary -> Format.fprintf fmt "@[(%a ? %a : %a)@]"
       | If -> Format.fprintf fmt "@[(if %a then %a else %a)@]"
       | InORange -> Format.fprintf fmt "@[(%a <= %a < %a)@]"
     in
-    (f fmt) pp_ec_ast_expr e1 pp_ec_ast_expr e2 pp_ec_ast_expr e3
+    f pp_ec_ast_expr e1 pp_ec_ast_expr e2 pp_ec_ast_expr e3
 
   let pp_ec_lvalue fmt (lval: ec_lvalue) =
     match lval with
@@ -229,13 +236,6 @@ module Ec = struct
         pp_ec_ast_expr e pp_ec_ast_stmt c
     | ESreturn e -> Format.fprintf fmt "@[return %a;@]" pp_ec_ast_expr e
     | EScomment s -> Format.fprintf fmt "@[(* %s *)@]" s
-
-  let rec pp_ec_ty fmt ty =
-    match ty with
-    | Base t -> Format.fprintf fmt "%s" t
-    | Tuple tl ->
-      if tl = [] then Format.fprintf fmt "unit"
-      else Format.fprintf fmt "@[(%a)@]" (pp_list " *@ " pp_ec_ty) tl
 
   let pp_ec_vdecl fmt (x, ty) = Format.fprintf fmt "%s:%a" x pp_ec_ty ty
 
@@ -351,7 +351,8 @@ type ('len) env = {
   randombytes : Sint.t ref;
   proofv : proofvar Mf.t ref;
   func : funname option;
-  freturn : Prog.var list
+  freturn : Prog.var list;
+  sign : bool
 }
 
 (* ------------------------------------------------------------------- *)
@@ -606,7 +607,7 @@ let normalize_name n =
 let mkfunname env fn =
   fn.fn_name |> normalize_name |> create_name env
 
-let empty_env pd model fds arrsz warrsz randombytes =
+let empty_env pd model fds arrsz warrsz randombytes sign =
 
   let env = {
     pd;
@@ -625,6 +626,7 @@ let empty_env pd model fds arrsz warrsz randombytes =
     proofv = ref Mf.empty;
     func = None;
     freturn = [];
+    sign
   } in
 
   (*  let mk_tys tys = List.map Conv.cty_of_ty tys in *)
@@ -808,7 +810,11 @@ module Exp = struct
   let glob_mem = ["Glob"; "mem"]
   let glob_memi = Eident glob_mem
 
-  let pd_uint env = Eident [Format.sprintf "W%d" (int_of_ws env.pd); "to_uint"]
+  let pd_uint env =
+    if env.sign then
+      Eident [Format.sprintf "W%d" (int_of_ws env.pd); "to_int"]
+    else
+      Eident [Format.sprintf "W%d" (int_of_ws env.pd); "to_uint"]
 
   let ec_apps1 s e = Eapp (ec_ident s, [e])
 
@@ -989,7 +995,7 @@ module Exp = struct
       let rt = Eident ["res"] in
       let rt =
         match env.model with
-        | CL -> Eproj (rt,1)
+        | Annotations -> Eproj (rt,1)
         | _ -> rt
       in
       let ret = env.freturn in
@@ -1007,7 +1013,7 @@ module Exp = struct
           let rt = Eident ["res"] in
           let rt =
             match env.model with
-            | CL -> Eproj (rt,1)
+            | Annotations -> Eproj (rt,1)
             | _ -> rt
           in
           let ret = env.freturn in
@@ -1129,10 +1135,10 @@ let toec_ty ty = match ty with
     | Bty Bool -> "bool"
     | Bty Int  -> "int"
     | Bty (U ws) -> (pp_sz_t ws)
-     | Bty (Abstract s) -> s
+    | Bty (Abstract s) -> s
     | Arr(ws,n) -> Format.sprintf "%s %s.t" (pp_sz_t ws) (fmt_Array n)
 
-module CL  = struct
+module Annotations  = struct
 
   let fand a b = Eop2 (Infix "/\\", a, b)
 
@@ -1200,13 +1206,13 @@ module CL  = struct
         ) tmps
     in
 
-    (* let pre = CL.sub_fun_param formals es contr.f_pre in *)
+    (* let pre = Annotations.sub_fun_param formals es contr.f_pre in *)
     (* let pre = List.map (fun (_,e) -> e) pre in *)
     let post = sub_fun_return tmps contr.f_post in
     let post = sub_fun_param formals es post in
     let post = List.map (fun (_,e) -> e) post in
 
-    (* let i = List.fold (fun acc pre -> CL.ec_assert env pre @ acc ) [] pre in *)
+    (* let i = List.fold (fun acc pre -> Annotations.ec_assert env pre @ acc ) [] pre in *)
 
     let i = (* i @ *)
       [EScall ([LvIdent [ttmpt] ; LvIdent ["tmp__check"]], [get_funname env f], args)]
@@ -1495,6 +1501,22 @@ module CL  = struct
 
   let import = [IrequireImport ["Jcheck"]]
 
+  let trans annot =
+    let l =
+      ["t", true ; "f", false]
+    in
+    let mk_trans = Annot.filter_string_list None l in
+    let atran annot =
+      match Annot.ensure_uniq1 "signed" mk_trans annot with
+      | None -> false
+      | Some s -> s
+    in
+    atran annot
+
+  let sign env f =
+    let sign = trans f.f_annot.f_user_annot in
+    {env with sign}
+
 end
 
 let base_op = function
@@ -1650,13 +1672,13 @@ let rec init_aux_i pd asmOp env i =
 match i.i_desc with
     | Cassgn (lv, _, _, e) -> (
         match env.model with
-        | Normal | CL -> env
+        | Normal | Annotations -> env
         | ConstantTime -> add_aux (add_aux env [ty_lval lv]) [ty_expr e]
       )
     | Cassert _ -> env
     | Copn (lvs, _, op, _) -> (
         match env.model with
-        | Normal | CL -> 
+        | Normal | Annotations -> 
             if List.length lvs = 1 then env 
             else
                 let tys  = List.map Conv.ty_of_cty (Sopn.sopn_tout Build_Tabstract pd asmOp op) in
@@ -1671,7 +1693,7 @@ match i.i_desc with
     )
     | Ccall(lvs, f, _) -> (
         match env.model with
-        | Normal | CL ->
+        | Normal | Annotations ->
             if lvs = [] then env 
             else 
                 let tys = (*List.map Conv.ty_of_cty *)(fst (get_funtype env f)) in
@@ -1684,7 +1706,7 @@ match i.i_desc with
     )
     | Csyscall(lvs, o, _) -> (
         match env.model with
-        | Normal | CL ->
+        | Normal | Annotations ->
             if lvs = [] then env
             else
                 let tys = List.map Conv.ty_of_cty (Syscall.syscall_sig_u o).scs_tout in
@@ -1716,12 +1738,12 @@ let ec_leaks es = ec_addleaks [Eapp (ec_ident "LeakAddr", [Elist es])]
 let ec_leaks_e env e =
     match env.model with
     | ConstantTime -> ec_leaks (ece_leaks_e env e)
-    | Normal | CL -> []
+    | Normal | Annotations -> []
 
 let ec_leaks_es env es =
     match env.model with
     | ConstantTime -> ec_leaks (List.map (toec_expr env) (leaks_es env.pd es))
-    | Normal | CL -> []
+    | Normal | Annotations -> []
 
 let ec_leaks_opn env es =  ec_leaks_es env es
 
@@ -1732,7 +1754,7 @@ let ec_leaks_if env e =
             Eapp (ec_ident "LeakAddr", [Elist (ece_leaks_e env e)]);
             Eapp (ec_ident "LeakCond", [toec_expr env e])
         ]
-    | Normal | CL -> []
+    | Normal | Annotations -> []
 
 let ec_leaks_for env e1 e2 = 
     match env.model with
@@ -1742,7 +1764,7 @@ let ec_leaks_for env e1 e2 =
             Eapp (ec_ident "LeakAddr", [Elist leaks]);
             Eapp (ec_ident "LeakFor", [Etuple [toec_expr env e1; toec_expr env e2]])
             ]
-    | Normal | CL -> []
+    | Normal | Annotations -> []
 
 let ec_leaks_lv env lv = 
     match env.model with
@@ -1750,7 +1772,7 @@ let ec_leaks_lv env lv =
         let leaks = leaks_lval env.pd lv in
         if leaks = [] then []
         else ec_leaks (List.map (toec_expr env) leaks)
-    | Normal | CL -> []
+    | Normal | Annotations -> []
 
 let ec_assgn env lv (etyo, etyi) e =
     let e = e |> ec_wzeroext (etyo, etyi) |> ec_cast env (ty_lval lv, etyo) in
@@ -1768,14 +1790,14 @@ let ec_instr_aux env lvs etyso etysi instr =
 
 let ec_pcall env lvs otys f args =
     let ltys = List.map ty_lval lvs in
-    if lvs = [] || ((env.model = Normal || env.model = CL) && check_lvals lvs && ltys = otys) then
+    if lvs = [] || ((env.model = Normal || env.model = Annotations) && check_lvals lvs && ltys = otys) then
         [EScall (ec_lvals env lvs, f, args)]
     else
         ec_instr_aux env lvs otys otys (fun lvals -> EScall (lvals, f, args))
 
 let ec_call env lvs etyso etysi e =
     let ltys = List.map ty_lval lvs in
-    if lvs = [] || ((env.model = Normal || env.model = CL) && check_lvals lvs && ltys = etyso && etyso = etysi) then
+    if lvs = [] || ((env.model = Normal || env.model = Annotations) && check_lvals lvs && ltys = etyso && etyso = etysi) then
         [ESasgn ((ec_lvals env lvs), e)]
     else
         ec_instr_aux env lvs etyso etysi (fun lvals -> ESasgn (lvals, e))
@@ -1789,7 +1811,7 @@ and toec_instr asmOp env i =
         [toec_lval1 env lv (ec_ident "witness")]
     | Cassgn (lv, _, _, e) -> (
         match env.model with
-        | Normal | CL ->
+        | Normal | Annotations ->
             let e = toec_cast env (ty_lval lv) e in
             [toec_lval1 env lv e]
         | ConstantTime ->
@@ -1807,7 +1829,7 @@ and toec_instr asmOp env i =
         let otys', _ = ty_sopn env.pd asmOp op' es in
         let ec_op op = ec_ident (ec_opn env.pd asmOp op) in
         let ec_e op = Eapp (ec_op op, List.map (ec_wcast env) (List.combine itys es)) in
-        if (env.model = Normal || env.model = CL) && List.length lvs = 1 then
+        if (env.model = Normal || env.model = Annotations) && List.length lvs = 1 then
             ec_assgn env (List.hd lvs) (List.hd otys, List.hd otys') (ec_e op')
         else
             (ec_leaks_opn env es) @
@@ -1815,7 +1837,7 @@ and toec_instr asmOp env i =
     | Ccall (lvs, f, es) ->
       begin
         match env.model with
-        | CL -> CL.toec_fun env lvs f es
+        | Annotations -> Annotations.toec_fun env lvs f es
         | _ ->
           let otys, itys = get_funtype env f in
           let args = List.map (ec_wcast env) (List.combine itys es) in
@@ -1827,14 +1849,14 @@ and toec_instr asmOp env i =
     | Cassert (Assume,_,e) ->
       begin
         match env.model with
-        | CL ->  CL.ec_assume env e
+        | Annotations ->  Annotations.ec_assume env e
         | _ -> []
       end
 
     | Cassert (Assert,_,e) ->
       begin
         match env.model with
-        | CL -> CL.ec_assert env e
+        | Annotations -> Annotations.ec_assert env e
         | _ -> []
       end
 
@@ -1886,11 +1908,17 @@ let add_ty env = function
 
 let toec_fun asmOp env f = 
     let f = { f with f_body = remove_for f.f_body } in
+
+    let env =
+      match env.model with
+      | Annotations -> Annotations.sign env f
+      | _ -> env
+    in
+
     let locals = Sv.elements (locals f) in
     let env = List.fold_left add_var env (f.f_args @ locals) in
     (* init auxiliary variables *) 
-    let env = init_aux env.pd asmOp env f.f_body
-    in
+    let env = init_aux env.pd asmOp env f.f_body in
     List.iter (add_ty env) f.f_tyout;
     List.iter (fun x -> add_ty env x.v_ty) (f.f_args @ locals);
     Mty.iter (fun ty _ -> add_ty env ty) env.auxv;
@@ -1906,15 +1934,15 @@ let toec_fun asmOp env f =
     in
     let env, ec_locals =
       match env.model with
-      | CL ->
-        let env, vars = CL.ec_vars env f in
+      | Annotations ->
+        let env, vars = Annotations.ec_vars env f in
         env, ec_locals @ vars
       | _ -> env, ec_locals
     in
 
     let cl_vars_init =
       match env.model with
-      | CL -> (CL.proof_var_init env f)
+      | Annotations -> (Annotations.proof_var_init env f)
       | _ -> []
     in
 
@@ -1924,20 +1952,21 @@ let toec_fun asmOp env f =
       | [x] ->
         begin
           match env.model with
-          | CL -> ESreturn (Etuple (ec_var x :: [CL.check_vars env f]))
+          | Annotations -> ESreturn (Etuple (ec_var x :: [Annotations.check_vars env f]))
           | _ -> ESreturn (ec_var x)
         end
       | xs ->
         begin
           match env.model with
-          | CL -> ESreturn (Etuple (Etuple (List.map ec_var xs) :: [CL.check_vars env f ]))
+          | Annotations ->
+            ESreturn (Etuple (Etuple (List.map ec_var xs) :: [Annotations.check_vars env f ]))
           | _ -> ESreturn (Etuple (List.map ec_var xs))
         end
     in
 
     let ret_typ =
       match env.model with
-      | CL ->
+      | Annotations ->
         let ret_typ = [Tuple(List.map (fun x -> Base (toec_ty x)) f.f_tyout)] in
         Tuple (ret_typ @ [Base "to_check"])
       | _ -> Tuple(List.map (fun x -> Base (toec_ty x)) f.f_tyout)
@@ -2056,7 +2085,7 @@ let ec_randombytes env =
 
 let toec_prog pd asmOp model globs funcs arrsz warrsz randombytes =
     let add_glob_env env (x, d) = add_glob (add_glob_arrsz env (x, d)) x in
-    let env = empty_env pd model funcs arrsz warrsz randombytes
+    let env = empty_env pd model funcs arrsz warrsz randombytes false
         |> fun env -> List.fold_left add_glob_env env globs
         |> fun env -> List.fold_left add_arrsz env funcs
     in
@@ -2064,11 +2093,11 @@ let toec_prog pd asmOp model globs funcs arrsz warrsz randombytes =
     let env, pp_leakages = match model with
       | ConstantTime -> env, [("leakages", Base"leakages_t")]
       | Normal -> env, []
-      | CL ->
+      | Annotations ->
         let env, tmp =
           List.fold_left
           (fun (env,acc) a ->
-             let env, vars = CL.ec_tmp_lvs env a in
+             let env, vars = Annotations.ec_tmp_lvs env a in
              env, acc @ vars
           )
           (env,[])
@@ -2103,7 +2132,7 @@ let toec_prog pd asmOp model globs funcs arrsz warrsz randombytes =
 
     let import_jleakage = match model with
       | Normal -> []
-      | CL -> CL.import
+      | Annotations -> Annotations.import
       | ConstantTime -> [IfromRequireImport ("Jasmin", ["JLeakage"])]
     in
 
@@ -2125,7 +2154,7 @@ let toec_prog pd asmOp model globs funcs arrsz warrsz randombytes =
 
     let proof =
       match env.model with
-      | CL -> CL.proof env funcs
+      | Annotations -> Annotations.proof env funcs
       | _ -> []
     in
 
