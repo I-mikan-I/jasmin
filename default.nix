@@ -6,7 +6,6 @@
 , ocamlDeps ? !inCI
 , testDeps ? !inCI
 , devTools ? !inCI
-, ecRef ? ""
 , opamDeps ? false
 , enableFramePointers ? false
 }:
@@ -30,11 +29,6 @@ let coqPackages =
 
 let mathcomp-word = callPackage scripts/mathcomp-word.nix { inherit coqPackages; }; in
 
-let easycrypt = callPackage scripts/easycrypt.nix {
-  inherit ecRef;
-  why3 = pkgs.why3.override { ideSupport = false; };
-}; in
-
 let inherit (coqPackages.coq) ocamlPackages; in
 
 let oP =
@@ -51,8 +45,6 @@ if !lib.versionAtLeast oP.ocaml.version "4.11"
 then throw "Jasmin requires OCaml ≥ 4.11"
 else
 
-let ecDeps = ecRef != ""; in
-
 stdenv.mkDerivation {
   name = "jasmin-0";
   src = nix-gitignore.gitignoreSource [] ./.;
@@ -66,13 +58,13 @@ stdenv.mkDerivation {
          batteries
          menhir (oP.menhirLib or null) zarith camlidl apron yojson ]))
     ++ optionals devTools (with oP; [ merlin ocaml-lsp ])
-    ++ optionals ecDeps [ easycrypt alt-ergo z3.out ]
     ++ optionals opamDeps [ rsync git pkg-config perl ppl mpfr opam ]
     ;
 
   enableParallelBuilding = true;
 
   installPhase = ''
-    make -C compiler install PREFIX=$out
+    make -j 16 -C compiler install PREFIX=$out
+    make -j 16 -C eclib install PREFIX=$out
   '';
 }
