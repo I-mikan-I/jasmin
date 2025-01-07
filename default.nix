@@ -48,7 +48,7 @@ else
 stdenv.mkDerivation {
   name = "jasmin-0";
   src = nix-gitignore.gitignoreSource [] ./.;
-  buildInputs = []
+  nativeBuildInputs = []
     ++ optionals coqDeps [ coqPackages.coq mathcomp-word ]
     ++ optionals testDeps ([ curl.bin oP.apron.out libllvm ] ++ (with python3Packages; [ python pyyaml ]))
     ++ optionals ocamlDeps ([ mpfr ppl ] ++ (with oP; [
